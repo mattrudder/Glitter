@@ -7,57 +7,73 @@
 #include <memory>
 
 // Define Namespace
-namespace Mirage
-{
+//namespace Mirage
+//{
     Shader & Shader::activate()
     {
         glUseProgram(mProgram);
         return *this;
     }
 
-    void Shader::bind(unsigned int location, float value) { glUniform1f(location, value); }
-    void Shader::bind(unsigned int location, glm::mat4 const & matrix)
+    void Shader::bind(unsigned int location, float value) const { glUniform1f(location, value); }
+    void Shader::bind(unsigned int location, glm::mat4 const & matrix) const
     { glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(matrix)); }
+    void Shader::bind(unsigned int location, std::vector<glm::mat4> const & matrices) const
+    { glUniformMatrix4fv(location, matrices.size(), GL_FALSE, glm::value_ptr(*matrices.data())); }
+
+    void Shader::bind(unsigned int location, int value) const
+    { glUniform1i(location, value); }
+    void Shader::bind(unsigned int location, glm::vec3 const & value) const
+    { glUniform3fv(location, 1, glm::value_ptr(value)); }
+    void Shader::bind(unsigned int location, glm::vec4 const & value) const
+    { glUniform4fv(location, 1, glm::value_ptr(value)); }
 
     Shader & Shader::attach(std::string const & filename)
     {
-        // Load GLSL Shader Source from File
-        std::string path = PROJECT_SOURCE_DIR "/Mirage/Shaders/";
-        std::ifstream fd(path + filename);
-        auto src = std::string(std::istreambuf_iterator<char>(fd),
-                              (std::istreambuf_iterator<char>()));
+      // Load GLSL Shader Source from File
+      std::string path = PROJECT_SOURCE_DIR "/Glitter/Shaders/";
+      std::ifstream fd(path + filename);
+      auto src = std::string(std::istreambuf_iterator<char>(fd),
+                            (std::istreambuf_iterator<char>()));
 
-        // Create a Shader Object
-        const char * source = src.c_str();
-        auto shader = create(filename);
-        glShaderSource(shader, 1, & source, nullptr);
-        glCompileShader(shader);
-        glGetShaderiv(shader, GL_COMPILE_STATUS, & mStatus);
+      // Create a Shader Object
+      const char * source = src.c_str();
+      auto index = filename.rfind(".");
+      auto ext = filename.substr(index + 1);
+      GLenum type;
+      if (ext == "comp") type = GL_COMPUTE_SHADER;
+      else if (ext == "frag") type = GL_FRAGMENT_SHADER;
+      else if (ext == "geom") type = GL_GEOMETRY_SHADER;
+      else if (ext == "vert") type = GL_VERTEX_SHADER;
+      else                    return *this;
 
-        // Display the Build Log on Error
-        if (mStatus == false)
-        {
-            glGetShaderiv(shader, GL_INFO_LOG_LENGTH, & mLength);
-            std::unique_ptr<char[]> buffer(new char[mLength]);
-            glGetShaderInfoLog(shader, mLength, nullptr, buffer.get());
-            fprintf(stderr, "%s\n%s", filename.c_str(), buffer.get());
-        }
+      auto it = mProgramShaders.find(type);
+      if (it != mProgramShaders.end())
+      {
+        GLuint shader = it->second;
+        glDetachShader(mProgram, shader);
+        mProgramShaders.erase(it);
+      }
 
-        // Attach the Shader and Free Allocated Memory
-        glAttachShader(mProgram, shader);
-        glDeleteShader(shader);
-        return *this;
-    }
+      GLuint shader = glCreateShader(type);
+      glShaderSource(shader, 1, & source, nullptr);
+      glCompileShader(shader);
+      glGetShaderiv(shader, GL_COMPILE_STATUS, & mStatus);
 
-    GLuint Shader::create(std::string const & filename)
-    {
-        auto index = filename.rfind(".");
-        auto ext = filename.substr(index + 1);
-             if (ext == "comp") return glCreateShader(GL_COMPUTE_SHADER);
-        else if (ext == "frag") return glCreateShader(GL_FRAGMENT_SHADER);
-        else if (ext == "geom") return glCreateShader(GL_GEOMETRY_SHADER);
-        else if (ext == "vert") return glCreateShader(GL_VERTEX_SHADER);
-        else                    return false;
+      // Display the Build Log on Error
+      if (mStatus == false)
+      {
+        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, & mLength);
+        std::unique_ptr<char[]> buffer(new char[mLength]);
+        glGetShaderInfoLog(shader, mLength, nullptr, buffer.get());
+        fprintf(stderr, "%s\n%s", filename.c_str(), buffer.get());
+      }
+
+      // Attach the Shader and Free Allocated Memory
+      glAttachShader(mProgram, shader);
+      glDeleteShader(shader);
+      mProgramShaders[type] = shader;
+      return *this;
     }
 
     Shader & Shader::link()
@@ -74,4 +90,4 @@ namespace Mirage
         assert(mStatus == true);
         return *this;
     }
-};
+//};
