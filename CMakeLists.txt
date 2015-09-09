@@ -20,7 +20,8 @@ else()
     endif()
 endif()
 
-include_directories(Glitter/Headers/
+include_directories(Samples/
+                    Glitter/Headers/
                     Glitter/Vendor/assimp/include/
                     Glitter/Vendor/glad/include/
                     Glitter/Vendor/glfw/include/
@@ -40,15 +41,18 @@ file(GLOB PROJECT_CONFIGS CMakeLists.txt
                          .gitattributes
                          .gitignore
                          .gitmodules)
+file(GLOB SAMPLE_HEADERS Samples/*.hpp)
+file(GLOB SAMPLE_SOURCES Samples/*.cpp)
 
-source_group("Headers" FILES ${PROJECT_HEADERS})
+source_group("Headers" FILES ${PROJECT_HEADERS} ${SAMPLE_HEADERS})
 source_group("Shaders" FILES ${PROJECT_SHADERS})
-source_group("Sources" FILES ${PROJECT_SOURCES})
+source_group("Sources" FILES ${PROJECT_SOURCES} ${SAMPLE_SOURCES})
 source_group("Vendors" FILES ${VENDORS_SOURCES})
 
 add_definitions(-DGLFW_INCLUDE_NONE
                 -DPROJECT_SOURCE_DIR=\"${PROJECT_SOURCE_DIR}\")
 add_executable(${PROJECT_NAME} ${PROJECT_SOURCES} ${PROJECT_HEADERS}
+                               ${SAMPLE_SOURCES} ${SAMPLE_HEADERS}
                                ${PROJECT_SHADERS} ${PROJECT_CONFIGS}
                                ${VENDORS_SOURCES})
 target_link_libraries(${PROJECT_NAME} assimp glfw ${GLFW_LIBRARIES} ${GLAD_LIBRARIES})
