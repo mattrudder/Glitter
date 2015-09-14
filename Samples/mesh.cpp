@@ -161,8 +161,7 @@
       ))
     {
       // HACKS: Need to let the importer dealloc this...
-      mScene = loader.GetOrphanedScene();
-      mSceneOwned = true;
+      mScene = std::shared_ptr<aiScene>(loader.GetOrphanedScene());
       mTransform = make_mat(mScene->mRootNode->mTransformation);
 
       // Walk the Tree of Scene Nodes
@@ -175,6 +174,10 @@
           parse(filename.substr(0, index), mScene, mScene->mRootNode, mScene->mAnimations[i]);
       }
     }
+    else
+    {
+      fprintf(stderr, loader.GetErrorString());
+    }
   }
 
   Mesh::Mesh(std::vector<Vertex> const & vertices,
@@ -182,7 +185,6 @@
              std::map<GLuint, std::string> const & textures,
              std::map<std::string, uint> boneMapping,
              std::vector<BoneInfo> bones,
-             aiScene const * scene,
              aiNode const * node,
              Mesh* parent,
              std::string name,
@@ -192,15 +194,13 @@
                   , mTextures(textures)
                   , mBoneInfo(bones)
                   , mBoneMapping(boneMapping)
-                  , mScene(scene)
-                  , mSceneOwned(false)
                   , mDepth(depth)
                   , mName(name)
                   , mParent(parent)
                   , mStartTime(std::chrono::high_resolution_clock::now())
   {
-    if (!node && scene)
-      node = scene->mRootNode;
+    if (!node && getScene())
+      node = getScene()->mRootNode;
 
     mTransform = node ? make_mat(node->mTransformation) : glm::mat4();
 
@@ -281,6 +281,7 @@
       if (time < (float)anim->mScalingKeys[i + 1].mTime)
       {
         index = i;
+        break;
       }
     }
 
@@ -306,6 +307,7 @@
       if (time < (float)anim->mPositionKeys[i + 1].mTime)
       {
         index = i;
+        break;
       }
     }
 
@@ -331,6 +333,7 @@
       if (time < (float)anim->mRotationKeys[i + 1].mTime)
       {
         rotationIndex = i;
+        break;
       }
     }
 
@@ -432,29 +435,40 @@
   void Mesh::transformBones(float time, std::vector<glm::mat4> & bones)
   {
     // TODO: Do this at load time?
-    int animIndex = mParent ? mParent->mAnimIndex : mAnimIndex;
-    aiAnimation* animation = mScene->mAnimations[animIndex];
+    int animIndex = 0;
+    AnimationClip clip;
+
+    if (mParent)
+    {
+      animIndex = mParent->mAnimIndex;
+      clip = mParent->mAnimations[animIndex];
+    }
+    else
+    {
+      animIndex = mAnimIndex;
+      clip = mAnimations[animIndex];
+    }
+
     double ticksPerSecond =
-        animation->mTicksPerSecond > std::numeric_limits<double>::epsilon()
-          ? animation->mTicksPerSecond
+        clip.animation->mTicksPerSecond > std::numeric_limits<double>::epsilon()
+          ? clip.animation->mTicksPerSecond
           : 25.0f;
     double timeInTicks = time * ticksPerSecond;
 #if 1
-    double animTime = fmod(timeInTicks, animation->mDuration);
+    double animTime = fmod(timeInTicks, clip.animation->mDuration);
 #else
     double animTime = 0.625f;
 #endif
 
-    ImGui::SetNextWindowPos(ImVec2(10,10));
-    ImGui::Begin("BoneHierarchy Display", nullptr, ImVec2(0,0), 0.3f, ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoSavedSettings);
 
+    ImGui::Begin("BoneHierarchy Display", nullptr, ImVec2(30,30), 0.3f, ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoSavedSettings);
 
-    updateBoneHierarchy((float)animTime, animation, mScene->mRootNode, glm::mat4());
+    updateBoneHierarchy((float)animTime, clip.animation, getScene()->mRootNode, glm::mat4());
 
     bool opened = ImGui::TreeNode(this, "Final Bones: %s", mName.data());
     bones.resize(mBoneInfo.size());
-    //auto boneIter = mBoneMapping.begin();
-    for (int i = 0; i < mBoneInfo.size(); ++i)
+
+    for (size_t i = 0; i < mBoneInfo.size(); ++i)
     {
       bones[i] = mBoneInfo[i].finalTransformation;
       if (opened)
@@ -482,7 +496,7 @@
 
   void Mesh::draw(Shader const & shader, glm::mat4 model)
   {
-    auto global = model * mTransform;
+    auto global = mTransform;
     unsigned int unit = 0, diffuse = 0, specular = 0;
     for (auto &i : mSubMeshes) i->draw(shader, model);
     if (mIndices.size() == 0) return;
@@ -535,7 +549,7 @@
     glBindVertexArray(0);
   }
 
-  void Mesh::parse(std::string const & path, aiScene const * scene, aiNode const * node)
+  void Mesh::parse(std::string const & path, std::shared_ptr<aiScene> scene, aiNode const * node)
   {
     printf("node (%s): ", node->mName.data);
     printMatrix(make_mat(node->mTransformation));
@@ -546,7 +560,7 @@
       parse(path, scene, node->mChildren[i]);
   }
 
-  void Mesh::parse(std::string const & path, aiScene const * scene, aiNode const * node, aiMesh const * mesh)
+  void Mesh::parse(std::string const & path, std::shared_ptr<aiScene> scene, aiNode const * node, aiMesh const * mesh)
   {
     // Create Vertex Data from Mesh Node
     std::vector<Vertex> vertices; Vertex vertex;
@@ -585,12 +599,22 @@
 
     // Create New Mesh Node
 
-    mSubMeshes.push_back(std::unique_ptr<Mesh>(new Mesh(vertices, indices, textures, boneMapping, bones, scene, node, this, std::string(mesh->mName.data), mDepth + 1)));
+    mSubMeshes.push_back(std::unique_ptr<Mesh>(new Mesh(vertices, indices, textures, boneMapping, bones, node, this, std::string(mesh->mName.data), mDepth + 1)));
   }
 
-  void Mesh::parse(std::string const & path, aiScene const * scene, aiNode const * node, aiAnimation const * animation)
+  void Mesh::parse(std::string const & path, std::shared_ptr<aiScene> scene, aiNode const * node, aiAnimation const * animation)
   {
-    mAnimList.push_back(std::string(animation->mName.data) + " (" + std::to_string(animation->mDuration) + " sec)");
+    // TODO: AnimationSet should own the scene.
+    AnimationClip clip;
+    clip.scene = scene;
+    clip.animation = animation;
+    clip.name = clip.animation->mName.data;
+
+    auto end_index = path.find_last_of(".");
+    auto begin_index = path.find("_");
+
+    mAnimList.push_back(path.substr(begin_index + 1, end_index - (begin_index + 1)) + " (" + std::to_string(clip.animation->mDuration) + " sec)");
+    mAnimations.push_back(clip);
   }
 
   void Mesh::loadBones(aiMesh const * mesh, std::vector<Vertex> & vertices, std::map<std::string, uint> & boneMapping, std::vector<BoneInfo> & bones)
@@ -611,7 +635,7 @@
         bones[boneIndex].boneOffset = make_mat(bone->mOffsetMatrix);
         boneMapping[boneName] = boneIndex;
 
-        printf("assigning bone %s to index %d\n", boneName.c_str(), boneIndex);
+        printf("mesh %s: assigning bone %s to index %d\n", mesh->mName.C_Str(), boneName.c_str(), boneIndex);
       }
       else
       {
@@ -698,5 +722,35 @@
       else if (type == aiTextureType_SPECULAR) mode = "Specular";
       textures.insert(std::make_pair(texture, mode));
     }   return textures;
+  }
+
+  void Mesh::loadAnimationClip(std::string const & filename)
+  {
+    Assimp::Importer loader;
+    if (loader.ReadFile(
+        PROJECT_SOURCE_DIR "/Glitter/Models/" + filename,
+//        aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs
+        aiProcessPreset_TargetRealtime_MaxQuality |
+        aiProcess_OptimizeGraph                   |
+        aiProcess_FlipUVs
+    ))
+    {
+      // HACKS: Need to let the importer dealloc this...
+      mScene = std::shared_ptr<aiScene>(loader.GetOrphanedScene());
+
+      // Walk the Tree of Scene Nodes
+      auto index = filename.find_last_of("/");
+      auto file = filename.substr(0, index);
+      if (!mScene) fprintf(stderr, "%s\n", loader.GetErrorString());
+      else
+      {
+        for (unsigned int i = 0; i < mScene->mNumAnimations; i++)
+          parse(file, mScene, mScene->mRootNode, mScene->mAnimations[i]);
+      }
+    }
+    else
+    {
+      fprintf(stderr, loader.GetErrorString());
+    }
   }
 //};

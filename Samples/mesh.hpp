@@ -33,6 +33,12 @@
       std::string name;
     };
 
+    struct AnimationClip {
+      std::string name;
+      std::shared_ptr<aiScene> scene;
+      aiAnimation const * animation;
+    };
+
     class Shader;
 
     class Mesh
@@ -50,17 +56,20 @@
            std::map<GLuint, std::string> const & textures,
            std::map<std::string, uint> boneMapping,
            std::vector<BoneInfo> bones,
-           aiScene const * scene,
            aiNode const * node = nullptr,
            Mesh* parent = nullptr,
            std::string name = "",
            int depth = 0);
 
+      aiScene* getScene() const { return mParent ? mParent->mScene.get() : mScene.get(); }
+
       // Public Member Functions
       void draw(Shader const & shader, glm::mat4 model = glm::mat4());
-      const std::vector<std::string> const & getAnimationLabels() { return mAnimList; }
+      std::vector<std::string> const & getAnimationLabels() { return mAnimList; }
       int getAnimationIndex() const { return mAnimIndex; }
       void setAnimationIndex(int value) { mAnimIndex = value; }
+
+      void loadAnimationClip(std::string const & filename);
 
     private:
 
@@ -68,10 +77,12 @@
       Mesh(Mesh const &) = delete;
       Mesh & operator=(Mesh const &) = delete;
 
+
+
       // Private Member Functions
-      void parse(std::string const & path, aiScene const * scene, aiNode const * node);
-      void parse(std::string const & path, aiScene const * scene, aiNode const * node, aiMesh const * mesh);
-      void parse(std::string const & path, aiScene const * scene, aiNode const * node, aiAnimation const * anim);
+      void parse(std::string const & path, std::shared_ptr<aiScene> scene, aiNode const * node);
+      void parse(std::string const & path, std::shared_ptr<aiScene> scene, aiNode const * node, aiMesh const * mesh);
+      void parse(std::string const & path, std::shared_ptr<aiScene> scene, aiNode const * node, aiAnimation const * anim);
       void loadBones(aiMesh const * mesh, std::vector<Vertex> & vertices, std::map<std::string, uint> & boneMapping, std::vector<BoneInfo> & bones);
       void transformBones(float time, std::vector<glm::mat4> & bones);
       void updateBoneHierarchy(float time, aiAnimation const * animation, aiNode const * node, glm::mat4 const & parent, int depth = 0);
@@ -81,6 +92,7 @@
 
       // Private Member Containers
       std::vector<std::unique_ptr<Mesh>> mSubMeshes;
+      std::vector<AnimationClip> mAnimations;
       std::vector<GLuint> mIndices;
       std::vector<Vertex> mVertices;
       std::map<GLuint, std::string> mTextures;
@@ -92,9 +104,7 @@
       GLuint mElementBuffer;
       GLuint mBoneTexture;
       int mDepth;
-      aiScene const * mScene;
-
-      bool mSceneOwned;
+      std::shared_ptr<aiScene> mScene;
 
       typedef std::map<std::string, uint> BoneMap;
 

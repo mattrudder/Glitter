@@ -14,32 +14,62 @@ extern void printMatrix(glm::mat4 const & m);
 extern void printVector(glm::vec4 const & v);
 extern void printVector(glm::vec3 const & v);
 extern void printQuat(glm::quat const & q);
-// END Sample Code
+
+struct SkinnedMesh {
+  std::string name;
+  std::vector<std::string> animations;
+};
+
+#if 0
+static const char* gMeshes[] = {
+  "SkinnedMesh_TestA.dae",
+  "SkinnedMesh_TestB.dae",
+  "AmericanAirforce_Mesh.dae",
+};
+#else
+static SkinnedMesh gMeshes[] = {
+    { "SkinnedMesh_TestA.dae", {}
+    },
+    { "SkinnedMesh_TestB.dae", {}
+    },
+    { "AmericanAirforce_Mesh.dae", {
+        "AmericanAirforce_Idle2.dae",
+        "AmericanAirforce_Idle3.dae",
+        "AmericanAirforce_Idle4.dae",
+        "AmericanAirforce_Salute.dae",
+      }
+    },
+};
+#endif
 
 struct SkinnedMeshSampleContext {
   Shader skinnedShader;
   Shader floorShader;
-  Mesh* cubeMesh;
-  Mesh* floorMesh;
-  Mesh* skinnedMesh;
+  std::unique_ptr<Mesh> cubeMesh;
+  std::unique_ptr<Mesh> floorMesh;
+  std::unique_ptr<Mesh> skinnedMesh;
+  size_t skinnedMeshIndex;
 };
 
-static void*
-loadSample() {
-  SkinnedMeshSampleContext* context = new SkinnedMeshSampleContext();
+static void
+updateSkinnedMesh(SkinnedMeshSampleContext* context, size_t index) {
+  size_t meshCount = sizeof(gMeshes) / sizeof(gMeshes[0]);
+  if (index > meshCount - 1) index = meshCount - 1;
+  context->skinnedMeshIndex = index;
 
-  context->skinnedShader.attach("skinned.vert");
-  context->skinnedShader.attach("diffuse.frag");
-  context->skinnedShader.link();
+  auto& mesh = gMeshes[index];
+  context->skinnedMesh = std::unique_ptr<Mesh>(new Mesh(mesh.name));
 
-  context->floorShader.attach("diffuse.vert");
-  context->floorShader.attach("diffuse.frag");
-  context->floorShader.link();
+  for (auto it : mesh.animations)
+    context->skinnedMesh->loadAnimationClip(it);
+}
 
-  float fw = 50;
-  float fh = 50;
-  float fx = 0;
-  float fy = 0;
+static std::unique_ptr<Mesh>
+createPlane(float x, float y, float width, float height) {
+  float fw = width;
+  float fh = height;
+  float fx = x;
+  float fy = y;
 
   std::vector<GLuint> indices;
   std::vector<Vertex> vertices;
@@ -69,10 +99,24 @@ loadSample() {
   indices.push_back(0); indices.push_back(1); indices.push_back(2);
   indices.push_back(2); indices.push_back(1); indices.push_back(3);
 
-  context->floorMesh = new Mesh(vertices, indices, {}, {}, {}, nullptr);
-  context->cubeMesh = new Mesh("Cube.dae");
-  //context->skinnedMesh = new Mesh("SkinnedMesh_TestA.dae");
-  context->skinnedMesh = new Mesh("SkinnedMesh_TestB.dae");
+  return std::unique_ptr<Mesh>(new Mesh(vertices, indices, {}, {}, {}, nullptr));
+}
+
+static void*
+loadSample() {
+  SkinnedMeshSampleContext* context = new SkinnedMeshSampleContext();
+
+  context->skinnedShader.attach("skinned.vert");
+  context->skinnedShader.attach("diffuse.frag");
+  context->skinnedShader.link();
+
+  context->floorShader.attach("diffuse.vert");
+  context->floorShader.attach("diffuse.frag");
+  context->floorShader.link();
+
+  context->floorMesh = createPlane(0, 0, 50, 50);
+  context->cubeMesh = std::unique_ptr<Mesh>(new Mesh("Cube.dae"));
+  updateSkinnedMesh(context, 0);
 
   DbgInit();
 
@@ -85,9 +129,6 @@ unloadSample(void* ctx) {
 
   DbgShutdown();
 
-  delete context->cubeMesh;
-  delete context->floorMesh;
-  delete context->skinnedMesh;
   delete context;
 }
 
@@ -107,9 +148,11 @@ drawSample(void* ctx) {
   static float fov = 65.0f;
   static bool floorShown = true;
   static bool debugRendererEnabled = true;
+  static float radius = 20.f;
+  static float phi = 0.f;
+  static float theta = 0.f;
 
-
-  ImGui::SetWindowPos("BoneHierarchy Display", ImVec2(0,30));
+  ImGui::SetWindowPos("BoneHierarchy Display", ImVec2(10,30));
 
   const float editWidth = 350;
   ImGui::SetNextWindowPos(ImVec2(mWidth - editWidth - 20, 30), ImGuiSetCond_Once);
@@ -118,21 +161,23 @@ drawSample(void* ctx) {
   static bool floorSettingsOpen = true;
   if (ImGui::Begin("Render", &floorSettingsOpen, ImVec2(0,0), 0.3f, ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoSavedSettings)) {
     ImGui::PushItemWidth(ImGui::GetContentRegionAvailWidth());
+
     if (ImGui::Button("Reload Mesh Shader")) {
       context->skinnedShader.attach("skinned.vert");
       context->skinnedShader.attach("diffuse.frag");
       context->skinnedShader.link();
     } // ImGui::SameLine();
-    ImGui::PopItemWidth();
 
-    ImGui::ColorEdit3("Floor Color", floorColor);
-    ImGui::ColorEdit3("Mesh Color", skinColor);
-    ImGui::ColorEdit3("Light Color", lightColor);
-    ImGui::DragFloat3("Light Dir", lightDir, 0.01, -1.0, 1.0, nullptr, 1.0);
-    ImGui::DragFloat3("Cam Rotation", rotAmt, 0.01, -M_PI, M_PI, nullptr, 1.0);
-    ImGui::DragFloat("Field of View", &fov, 1, -360, 360, nullptr, 1.0);
-    ImGui::Checkbox("Show Floor Plane", &floorShown);
-    ImGui::Checkbox("Enable Debug Render", &debugRendererEnabled);
+    int meshIndex = context->skinnedMeshIndex;
+    auto meshGetter = [](void* data, int index, const char** name) {
+      auto meshes = (SkinnedMesh *)data;
+      *name = meshes[index].name.c_str();
+
+      return true;
+    };
+
+    if (ImGui::Combo("Mesh", &meshIndex, meshGetter, (void*) gMeshes, sizeof(gMeshes) / sizeof(gMeshes[0]), 4))
+      updateSkinnedMesh(context, meshIndex);
 
     auto nameGetter = [](void* data, int index, const char** name) {
       auto mesh = (Mesh *)data;
@@ -142,8 +187,25 @@ drawSample(void* ctx) {
     };
 
     int animIndex = context->skinnedMesh->getAnimationIndex();
-    if (ImGui::Combo("Animation", &animIndex, nameGetter, (void *) context->skinnedMesh, context->skinnedMesh->getAnimationLabels().size(), 4))
+    if (ImGui::Combo("Animation", &animIndex, nameGetter, (void *) context->skinnedMesh.get(), context->skinnedMesh->getAnimationLabels().size(), 4))
       context->skinnedMesh->setAnimationIndex(animIndex);
+
+    ImGui::PopItemWidth();
+
+    ImGui::ColorEdit3("Floor Color", floorColor);
+    ImGui::ColorEdit3("Mesh Color", skinColor);
+    ImGui::ColorEdit3("Light Color", lightColor);
+    ImGui::DragFloat3("Light Dir", lightDir, 0.01, -1.0, 1.0, nullptr, 1.0);
+    //ImGui::DragFloat3("Cam Rotation", rotAmt, 0.01, -M_PI, M_PI, nullptr, 1.0);
+
+    ImGui::DragFloat("Camera Zoom", &radius, 0.5f, 10.f, 50.f, nullptr, 1.0);
+    ImGui::DragFloat("phi", &phi, 0.01, -M_PI, M_PI, nullptr, 1.0);
+    ImGui::DragFloat("theta", &theta, 0.01, -M_PI, M_PI, nullptr, 1.0);
+
+    ImGui::DragFloat("Field of View", &fov, 1, -360, 360, nullptr, 1.0);
+
+    ImGui::Checkbox("Show Floor Plane", &floorShown);
+    ImGui::Checkbox("Enable Debug Render", &debugRendererEnabled);
   }
   ImGui::End();
 
@@ -152,36 +214,39 @@ drawSample(void* ctx) {
   //rotAmt += M_PI_2 * 0.01;
   glm::mat4 model;
   glm::vec3 camPos = glm::vec3(0.0f, 25.0f, 35.0f);
+
   glm::mat4 camRot = glm::rotate(glm::mat4(), rotAmt[2], glm::vec3(0, 0, 1)) * glm::rotate(glm::mat4(), rotAmt[1], glm::vec3(0, 1, 0)) * glm::rotate(glm::mat4(), rotAmt[0], glm::vec3(1, 0, 0));
+
+
+  float eyeX = radius * glm::cos(phi) * glm::sin(theta);
+  float eyeY = radius * glm::sin(phi) * glm::cos(theta);
+  float eyeZ = radius * glm::cos(theta);
 
   glm::vec4 camPosRot = camRot * glm::vec4(camPos, 1);
 //      glm::mat4 view = glm::lookAt(camPos.xyz(), glm::vec3(), glm::vec3(0.0f, 1.0f, 0.0f));
-  glm::mat4 view = glm::lookAt(camPosRot.xyz(), glm::vec3(), glm::vec3(0.0f, 1.0f, 0.0f));
+  //glm::mat4 view = glm::lookAt(camPosRot.xyz(), glm::vec3(), glm::vec3(0.0f, 1.0f, 0.0f));
+  glm::mat4 view = glm::lookAt(glm::vec3(eyeX, eyeY, eyeZ), glm::vec3(), glm::vec3(0.0f, 1.0f, 0.0f));
   glm::mat4 projection = glm::perspective(glm::radians(fov), (float)mWidth / (float)mHeight, 0.01f, 100.0f);
 
   DbgSetView(view);
   DbgSetProjection(projection);
 
-//    floorShader.activate();
-//
-//    floorShader.bind("uModel", model);
-//    floorShader.bind("uView", view);
-//    floorShader.bind("uProj", projection);
-//
-//    floorShader.bind("uColor", glm::make_vec4(floorColor));
-//    floorShader.bind("uLightDir", glm::normalize(glm::make_vec3(lightDir)));
-//    floorShader.bind("uLightColor", glm::make_vec4(lightColor));
-//    floorShader.bind("uPointLightPosition", glm::vec3(-3.52f, 3.3f, -0.82f));
-//    floorShader.bind("uPointLightColor", glm::vec4(0.149f, 0.304f, 0.433f, 1.0f));
-//
-//    if (floorShown)
-//    {
-//      floorMesh.draw(floorShader);
-//      DbgDrawCoordSystem(model);
-//    }
+  context->floorShader.activate();
 
-//      floorShader.bind("uModel", glm::scale(model, glm::vec3(5)));
-//      cube.draw(floorShader);
+  context->floorShader.bind("uModel", model);
+  context->floorShader.bind("uView", view);
+  context->floorShader.bind("uProj", projection);
+
+  context->floorShader.bind("uColor", glm::make_vec4(floorColor));
+  context->floorShader.bind("uLightDir", glm::normalize(glm::make_vec3(lightDir)));
+  context->floorShader.bind("uLightColor", glm::make_vec4(lightColor));
+  context->floorShader.bind("uPointLightPosition", glm::vec3(-3.52f, 3.3f, -0.82f));
+  context->floorShader.bind("uPointLightColor", glm::vec4(0.149f, 0.304f, 0.433f, 1.0f));
+
+  if (floorShown)
+  {
+    context->floorMesh->draw(context->floorShader, model);
+  }
 
   context->skinnedShader.activate();
 
@@ -199,8 +264,6 @@ drawSample(void* ctx) {
   context->skinnedMesh->draw(context->skinnedShader, model);
 
   DbgEnd();
-
-  // END Sample Code
 }
 
 static Sample gSkinnedSample("Skinned Mesh Rendering", loadSample, unloadSample, drawSample);

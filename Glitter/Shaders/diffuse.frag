@@ -67,6 +67,7 @@ void main ()
 
 	vec4 c = ambientColor + litC * diffuseColor;
 	vec4 ac = ambientColor * diffuseColor;
+	vec4 lc = ambientColor + litC;
 
     // Shadows
     float bias = 0.0355;
@@ -81,7 +82,7 @@ void main ()
     else
         shadow = vec4(vec3(1.0), 1.0);
 
-    finalColor = shadow * c;
+    finalColor = shadow * lc;
     //finalColor = vec4(0, gl_FragCoord.y / 1600, 0, 1.0);
 //		finalColor = c;
 		//finalColor = vec4(vColor.xyz, 1);
